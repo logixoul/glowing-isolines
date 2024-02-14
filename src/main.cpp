@@ -20,6 +20,7 @@ bool pause = false, pause2 = false;
 
 gl::VboMeshRef	mVboMesh;
 gl::TextureRef	mTexture;
+gl::GlslProgRef		mGlsl;
 
 CameraPersp		mCamera;
 //CameraUi		mCamUi;
@@ -78,15 +79,42 @@ struct SApp : App {
 		// create some geometry using a geom::Plane
 		auto plane = geom::Plane().size(vec2(1, 1)).subdivisions(ivec2(sx-1, sy-1));
 
-		// Specify two planar buffers - positions are dynamic because they will be modified
-		// in the update() loop. Tex Coords are static since we don't need to update them.
 		vector<gl::VboMesh::Layout> bufferLayout = {
 			gl::VboMesh::Layout().usage(GL_DYNAMIC_DRAW).attrib(geom::Attrib::POSITION, 3),
-			gl::VboMesh::Layout().usage(GL_STATIC_DRAW).attrib(geom::Attrib::TEX_COORD_0, 2)
+			gl::VboMesh::Layout().usage(GL_DYNAMIC_DRAW).attrib(geom::Attrib::NORMAL, 3),
 		};
 
 		mVboMesh = gl::VboMesh::create(plane, bufferLayout);
 		mTexture = gl::Texture::create(loadImage(loadAsset("tex.png")), gl::Texture::Format().loadTopDown());
+
+		mGlsl = gl::GlslProg::create(gl::GlslProg::Format()
+			.vertex(CI_GLSL(150,
+				uniform mat4	ciModelViewProjection;
+				uniform mat3 ciNormalMatrix;
+				in vec4			ciPosition;
+				in vec3			ciNormal;
+				out vec3 vNormal;
+				out vec3 vVertex;
+				
+				void main(void) {
+					//vec4 pos = ciPosition;
+					//pos.y = texture2D(
+					vNormal = ciNormalMatrix * ciNormal;
+					gl_Position = ciModelViewProjection * ciPosition;
+				}
+			))
+			.fragment(CI_GLSL(150,
+				out vec4			oColor;
+				in vec3 vNormal;
+
+				void main(void) {
+					/*vec3 L = normalize(-vVertex.xyz);
+					vec3 E = normalize(-vVertex.xyz);
+					vec3 R = normalize(-reflect(L, vNormal));*/
+
+					oColor = vec4(vNormal*.5+.5, 1);
+				}
+			)));
 	}
 	void update()
 	{
@@ -170,13 +198,9 @@ struct SApp : App {
 		// We set 'orphanExisting' to false so that we can also read from the position buffer, though keep
 		// in mind that this isn't the most efficient way to do cpu-side updates. Consider using VboMesh::bufferAttrib() as well.
 		auto mappedPosAttrib = mVboMesh->mapAttrib3f(geom::Attrib::POSITION, false);
-		for (int i = 0, x = 0, y = 0; i < mVboMesh->getNumVertices(); i++) {
-			x++;
-			if (x >= sx) {
-				x = 0; y++;
-			}
+		forxy(img2R) {
 			vec3& pos = *mappedPosAttrib;
-			mappedPosAttrib->y = img2R(x, y) * expRange(mouseX, .1, 100);
+			mappedPosAttrib->y = img2R(p) * expRange(mouseX, .1, 100);
 			++mappedPosAttrib;
 		}
 		mappedPosAttrib.unmap();
@@ -185,7 +209,7 @@ struct SApp : App {
 		mCamera.lookAt(vec3());
 		gl::setMatrices(mCamera);
 
-		gl::ScopedGlslProg glslScope(gl::getStockShader(gl::ShaderDef().texture()));
+		gl::ScopedGlslProg glslScope(mGlsl);
 		gl::ScopedTextureBind texScope(mTexture);
 		
 		gl::draw(mVboMesh);
