@@ -76,7 +76,7 @@ struct SApp : App {
 		stefanfw::eventHandler.subscribeToEvents(*this);
 
 		// create some geometry using a geom::Plane
-		auto plane = geom::Plane().size(vec2(20, 20)).subdivisions(ivec2(200, 50));
+		auto plane = geom::Plane().size(vec2(1, 1)).subdivisions(ivec2(sx-1, sy-1));
 
 		// Specify two planar buffers - positions are dynamic because they will be modified
 		// in the update() loop. Tex Coords are static since we don't need to update them.
@@ -141,21 +141,6 @@ struct SApp : App {
 				imgChangeAcc(p) *= 10.f;
 			}
 		}
-
-		// from vbo example
-
-		float offset = getElapsedSeconds() * 4.0f;
-
-		// Dynmaically generate our new positions based on a sin(x) + cos(z) wave
-		// We set 'orphanExisting' to false so that we can also read from the position buffer, though keep
-		// in mind that this isn't the most efficient way to do cpu-side updates. Consider using VboMesh::bufferAttrib() as well.
-		auto mappedPosAttrib = mVboMesh->mapAttrib3f(geom::Attrib::POSITION, false);
-		for (int i = 0; i < mVboMesh->getNumVertices(); i++) {
-			vec3& pos = *mappedPosAttrib;
-			mappedPosAttrib->y = sinf(pos.x * 1.1467f + offset) * 0.323f + cosf(pos.z * 0.7325f + offset) * 0.431f;
-			++mappedPosAttrib;
-		}
-		mappedPosAttrib.unmap();
 	}
 	void stefanDraw()
 	{
@@ -163,8 +148,7 @@ struct SApp : App {
 
 		auto img2R = convolveLongtail(img);
 		img2R = ::to01(img2R); // TODO this shouldn't be necessary
-		//mm("img2R", img2R);
-
+		/*
 		auto tex = gtex(img2R);
 		if(keys['t'])tex = shade2(tex,
 			"float f = fetch1();"
@@ -177,14 +161,33 @@ struct SApp : App {
 		tex = redToLuminance(tex);
 
 		gl::draw(tex, getWindowBounds());
-
+		*/
 		// from vbo sample
 
+		float offset = getElapsedSeconds() * 4.0f;
+
+		// Dynmaically generate our new positions based on a sin(x) + cos(z) wave
+		// We set 'orphanExisting' to false so that we can also read from the position buffer, though keep
+		// in mind that this isn't the most efficient way to do cpu-side updates. Consider using VboMesh::bufferAttrib() as well.
+		auto mappedPosAttrib = mVboMesh->mapAttrib3f(geom::Attrib::POSITION, false);
+		for (int i = 0, x = 0, y = 0; i < mVboMesh->getNumVertices(); i++) {
+			x++;
+			if (x >= sx) {
+				x = 0; y++;
+			}
+			vec3& pos = *mappedPosAttrib;
+			mappedPosAttrib->y = img2R(x, y) * expRange(mouseX, .1, 100);
+			++mappedPosAttrib;
+		}
+		mappedPosAttrib.unmap();
+
+		mCamera.setEyePoint(vec3(2, 2, 2));
+		mCamera.lookAt(vec3());
 		gl::setMatrices(mCamera);
 
 		gl::ScopedGlslProg glslScope(gl::getStockShader(gl::ShaderDef().texture()));
 		gl::ScopedTextureBind texScope(mTexture);
-
+		
 		gl::draw(mVboMesh);
 	}
 	void cleanup() override {
