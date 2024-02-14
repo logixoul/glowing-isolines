@@ -7,7 +7,6 @@
 #include "cfg1.h"
 #include "easyfft.h"
 //#include "cvstuff.h"
-#include <opencv2/videoio.hpp>
 //#include "CrossThreadCallQueue.h"
 
 int wsx = 600, wsy = 400;
@@ -18,11 +17,13 @@ Array2D<float> img(sx, sy);
 Array2D<float> imgChange(sx, sy, 0.0f);
 Array2D<float> imgChangeAcc(sx, sy, 0.0f);
 bool pause = false, pause2 = false;
-//typedef vec2 Complexf;
 
-cv::VideoWriter mVideoWriter = cv::VideoWriter("testVideo.mp4", //cv::CAP_FFMPEG, // has to be absent because otherwise i get isOpened=false
-	cv::VideoWriter::fourcc('m', 'p', '4', 'v'), // lx: has to be lowercase, because otherwise i get isOpened=false.
-	30, cv::Size(sx, sy), true);
+gl::VboMeshRef	mVboMesh;
+gl::TextureRef	mTexture;
+
+CameraPersp		mCamera;
+//CameraUi		mCamUi;
+//typedef vec2 Complexf;
 
 Array2D<Complexf> getFdKernel(ivec2 size) {
 	Array2D<float> sdKernel(size);
@@ -73,6 +74,19 @@ struct SApp : App {
 		
 
 		stefanfw::eventHandler.subscribeToEvents(*this);
+
+		// create some geometry using a geom::Plane
+		auto plane = geom::Plane().size(vec2(20, 20)).subdivisions(ivec2(200, 50));
+
+		// Specify two planar buffers - positions are dynamic because they will be modified
+		// in the update() loop. Tex Coords are static since we don't need to update them.
+		vector<gl::VboMesh::Layout> bufferLayout = {
+			gl::VboMesh::Layout().usage(GL_DYNAMIC_DRAW).attrib(geom::Attrib::POSITION, 3),
+			gl::VboMesh::Layout().usage(GL_STATIC_DRAW).attrib(geom::Attrib::TEX_COORD_0, 2)
+		};
+
+		mVboMesh = gl::VboMesh::create(plane, bufferLayout);
+		mTexture = gl::Texture::create(loadImage(loadAsset("tex.png")), gl::Texture::Format().loadTopDown());
 	}
 	void update()
 	{
@@ -98,13 +112,9 @@ struct SApp : App {
 		{
 			pause = !pause;
 		}
-		if (e.getChar() == '2')
-		{
-			pause2 = !pause2;
-		}
 	}
 	void stefanUpdate() {
-		if (pause2)
+		if (pause)
 			return;
 		forxy(img) {
 			imgChange(p) += imgChangeAcc(p);
@@ -131,6 +141,21 @@ struct SApp : App {
 				imgChangeAcc(p) *= 10.f;
 			}
 		}
+
+		// from vbo example
+
+		float offset = getElapsedSeconds() * 4.0f;
+
+		// Dynmaically generate our new positions based on a sin(x) + cos(z) wave
+		// We set 'orphanExisting' to false so that we can also read from the position buffer, though keep
+		// in mind that this isn't the most efficient way to do cpu-side updates. Consider using VboMesh::bufferAttrib() as well.
+		auto mappedPosAttrib = mVboMesh->mapAttrib3f(geom::Attrib::POSITION, false);
+		for (int i = 0; i < mVboMesh->getNumVertices(); i++) {
+			vec3& pos = *mappedPosAttrib;
+			mappedPosAttrib->y = sinf(pos.x * 1.1467f + offset) * 0.323f + cosf(pos.z * 0.7325f + offset) * 0.431f;
+			++mappedPosAttrib;
+		}
+		mappedPosAttrib.unmap();
 	}
 	void stefanDraw()
 	{
@@ -151,15 +176,18 @@ struct SApp : App {
 		
 		tex = redToLuminance(tex);
 
-		
-		/*tex = redToLuminance(tex);
-		auto mat = dlToMat3(tex, 0);
-		mat.convertTo(mat, CV_8UC3, 255.0f);
-		mVideoWriter.write(mat);*/
 		gl::draw(tex, getWindowBounds());
+
+		// from vbo sample
+
+		gl::setMatrices(mCamera);
+
+		gl::ScopedGlslProg glslScope(gl::getStockShader(gl::ShaderDef().texture()));
+		gl::ScopedTextureBind texScope(mTexture);
+
+		gl::draw(mVboMesh);
 	}
 	void cleanup() override {
-		mVideoWriter.release();
 	}
 	gl::TextureRef redToLuminance(gl::TextureRef in) {
 		return shade2(in, "float f = fetch1(); _out.rgb=vec3(f);", ShadeOpts().ifmt(GL_RGB8));
